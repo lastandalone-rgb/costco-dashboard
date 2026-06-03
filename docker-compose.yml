@@ -1,0 +1,117 @@
+version: '3.8'
+
+services:
+  # Nginx Reverse Proxy (自動化 HTTPS，當未來掛載域名時使用)
+  nginx-proxy:
+    image: nginxproxy/nginx-proxy
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - conf:/etc/nginx/conf.d
+      - vhost:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+      - certs:/etc/nginx/certs:ro
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+    restart: always
+    networks:
+      - costco-net
+
+  acme-companion:
+    image: nginxproxy/acme-companion
+    container_name: nginx-acme-companion
+    volumes_from:
+      - nginx-proxy
+    volumes:
+      - certs:/etc/nginx/certs:rw
+      - acme:/etc/acme.sh
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      # DEFAULT_EMAIL: your-email@example.com # 未來要用 Let's Encrypt 時取消註解並填寫
+      - NGINX_PROXY_CONTAINER=nginx-proxy
+    restart: always
+    depends_on:
+      - nginx-proxy
+    networks:
+      - costco-net
+
+  # PostgreSQL 資料庫
+  postgres:
+    image: postgres:15-alpine
+    container_name: costco-postgres
+    environment:
+      POSTGRES_USER: costco_user
+      POSTGRES_PASSWORD: costco_password
+      POSTGRES_DB: costco_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: always
+    ports:
+      - "5432:5432" # 方便本地端連線除錯
+    networks:
+      - costco-net
+
+  # Node.js 後端 API
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: costco-backend
+    command: npm run dev
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - DATABASE_URL=postgres://costco_user:costco_password@postgres:5432/costco_db
+      # VIRTUAL_HOST: api.yourdomain.com # 綁定網域時給 nginx-proxy 讀取的環境變數
+      # LETSENCRYPT_HOST: api.yourdomain.com
+    expose:
+      - "3001"
+    ports:
+      - "8081:3001" # 方便本地端腳本直接打請求
+    volumes:
+      - ./backend:/usr/src/app
+      - /usr/src/app/node_modules
+    restart: always
+    depends_on:
+      - postgres
+    networks:
+      - costco-net
+
+  # Next.js 前端 Dashboard
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: costco-frontend
+    command: npm run dev
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://localhost:8081/api
+      # VIRTUAL_HOST: yourdomain.com # 綁定網域時給 nginx-proxy 讀取的環境變數
+      # LETSENCRYPT_HOST: yourdomain.com
+    expose:
+      - "3000"
+    ports:
+      - "8080:3000" # 方便本地端預覽
+    volumes:
+      - ./frontend:/usr/src/app
+      - /usr/src/app/node_modules
+      - /usr/src/app/.next
+    restart: always
+    depends_on:
+      - backend
+    networks:
+      - costco-net
+
+volumes:
+  conf:
+  vhost:
+  html:
+  certs:
+  acme:
+  pgdata:
+
+networks:
+  costco-net:
+    driver: bridge
