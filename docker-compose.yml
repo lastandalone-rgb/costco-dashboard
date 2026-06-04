@@ -87,7 +87,8 @@ services:
     command: npm run dev
     environment:
       - NODE_ENV=development
-      - NEXT_PUBLIC_API_URL=http://localhost:8081/api
+      - NEXT_PUBLIC_API_URL=http://192.168.31.28:8081/api
+      - NEXT_PUBLIC_WS_URL=ws://192.168.31.28:8081/ws
       # VIRTUAL_HOST: yourdomain.com # 綁定網域時給 nginx-proxy 讀取的環境變數
       # LETSENCRYPT_HOST: yourdomain.com
     expose:
